@@ -415,27 +415,17 @@ export const Dashboard = ({ session }: DashboardProps) => {
       return;
     }
 
-    const payload: { id?: string; is_default: boolean } = {
-      is_default: setAsDefault,
-    };
+    const payload: { id?: string } = {};
 
     if (personId) {
       payload.id = personId;
     }
 
-    if (setAsDefault) {
-      const { error: defaultResetError } = await supabase
-        .from("people")
-        .update({ is_default: false })
-        .eq("is_default", true);
-
-      if (defaultResetError) {
-        setActionError(defaultResetError.message);
-        return;
-      }
-    }
-
-    const { error } = await supabase.from("people").insert(payload);
+    const { data: createdPerson, error } = await supabase
+      .from("people")
+      .insert(payload)
+      .select("id")
+      .single();
 
     if (error) {
       if (error.code === "23505") {
@@ -447,7 +437,23 @@ export const Dashboard = ({ session }: DashboardProps) => {
       return;
     }
 
-    setMessage("Person added.");
+    if (!createdPerson?.id) {
+      setActionError("Could not confirm the created person ID.");
+      return;
+    }
+
+    if (setAsDefault) {
+      const { error: setDefaultError } = await supabase.rpc("set_default_person", {
+        person_uuid: createdPerson.id,
+      });
+
+      if (setDefaultError) {
+        setActionError(setDefaultError.message);
+        return;
+      }
+    }
+
+    setMessage(setAsDefault ? "Person added and set as default." : "Person added.");
     setNewPersonId("");
     setSetAsDefault(false);
     void loadPeople();

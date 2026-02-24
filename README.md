@@ -126,12 +126,13 @@ Then in Supabase:
 - Enable Email auth and disable public signups if you want only manual account creation.
 - Configure redirect URLs for password reset to:
   - `http://localhost:3000`
-  - `https://your-production-domain/`
+  - `https://consistency-tracker-dwb.pages.dev`
 - Add `google` OAuth credentials if you want to use the OAuth client later.
 - Create two users:
   - `johnlee3@gmail.com`
   - `emily.langhorne@gmail.com`
 - Set a password for each user and share access.
+- Keep these two emails in the backend admin allowlist migration so RLS enforcement and UI rules stay aligned.
 
 ### Local postgres helper
 
@@ -174,6 +175,8 @@ GitHub Action `.github/workflows/deploy.yml` deploys to Cloudflare Pages.
 Required repo secret:
 
 - `CF_API_KEY` (Cloudflare API token for Pages)
+- `VITE_SUPABASE_URL` (hosted Supabase project URL)
+- `VITE_SUPABASE_ANON_KEY` (hosted Supabase anon key)
 
 Set your project name in workflow env `PROJECT_NAME`.
 
@@ -185,5 +188,5 @@ Deploy to main branch only; preview deployment on PRs is disabled by design.
   - `johnlee3@gmail.com`
   - `emily.langhorne@gmail.com`
 - Use `Forgot password?` from the login form to receive a reset email.
-- The reset link opens `http://localhost:3000` in local mode and lets you set a new password.
+- The reset link opens `http://localhost:3000` in local mode and `https://consistency-tracker-dwb.pages.dev` in production.
 - For local Supabase, reset emails are visible in Mailpit at `http://127.0.0.1:54324`.

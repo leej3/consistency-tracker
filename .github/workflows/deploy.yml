@@ -37,7 +37,7 @@ jobs:
         run: test -f "${BUILD_DIR}/index.html"
 
       - name: Install wrangler
-        run: npm install -g wrangler
+        run: npm install -g wrangler@4.68.0
 
       - name: Deploy production
         env:
