@@ -1,0 +1,16 @@
+services:
+  supabase-postgres:
+    image: postgres:16-alpine
+    container_name: consistency-tracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: consistency_tracker
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "54320:5432"
+    volumes:
+      - supabase_pg_data:/var/lib/postgresql/data
+
+volumes:
+  supabase_pg_data:
