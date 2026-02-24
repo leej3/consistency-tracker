@@ -204,6 +204,28 @@ h2 {
   width: 100%;
 }
 
+.score-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.score-input-wrap select {
+  flex: 1;
+}
+
+.help-badge {
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: 999px;
+  font-weight: 700;
+  background: #f2f8ee;
+  color: #1a5733;
+  border: 1px solid #a9c5b0;
+}
+
 .chart-status {
   margin: 0;
 }
@@ -238,6 +260,24 @@ h2 {
   padding: 0.6rem;
   border: 1px solid #dce4d8;
   border-radius: 10px;
+}
+
+.entry-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.entry-edit-form {
+  display: grid;
+  gap: 0.5rem;
 }
 
 .error {

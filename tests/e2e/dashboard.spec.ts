@@ -38,10 +38,29 @@ test("shows backend status icons in the header and supports settings sign out", 
   await login(page);
 
   await expect(page.getByTestId("status-auth")).toBeVisible();
+  await expect(page.getByTestId("status-auth")).toHaveAttribute(
+    "title",
+    /Green = connected\/healthy/i,
+  );
   await expect(page.getByTestId("status-database")).toBeVisible();
+  await expect(page.getByTestId("status-database")).toHaveAttribute(
+    "title",
+    /Green = connected\/healthy, gray = checking or idle, red = error/i,
+  );
   await expect(page.getByTestId("status-people-query")).toBeVisible();
+  await expect(page.getByTestId("status-people-query")).toHaveAttribute(
+    "title",
+    /Green = connected\/healthy, gray = checking or idle, red = error/i,
+  );
   await expect(page.getByTestId("status-entries-query")).toBeVisible();
-  await expect(page.getByTestId("status-refresh")).toHaveAttribute("title", /Auto refresh/i);
+  await expect(page.getByTestId("status-entries-query")).toHaveAttribute(
+    "title",
+    /Green = connected\/healthy, gray = checking or idle, red = error/i,
+  );
+  await expect(page.getByTestId("status-refresh")).toHaveAttribute(
+    "title",
+    /Green pulse = refresh cycle completed/i,
+  );
 
   await page.getByRole("button", { name: "open settings" }).click();
   await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
@@ -49,7 +68,9 @@ test("shows backend status icons in the header and supports settings sign out", 
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
 
-test("quick-add time control is constrained to whole-hour values", async ({ page }) => {
+test("quick-add time control is constrained and Bristol help tooltip is present", async ({
+  page,
+}) => {
   await login(page);
   await addPerson(page, randomUUID());
 
@@ -63,11 +84,17 @@ test("quick-add time control is constrained to whole-hour values", async ({ page
   for (const option of hourOptions) {
     expect(option).toMatch(/^\d{2}:00$/);
   }
+
+  await expect(quickAdd.getByRole("button", { name: "Show stool chart help" })).toHaveAttribute(
+    "title",
+    /Bristol Stool Chart[\s\S]*4: Smooth, soft sausage or snake/i,
+  );
 });
 
-test("can add a person and save an entry that appears in the entries list", async ({ page }) => {
+test("can add, then edit, an entry in the entries list", async ({ page }) => {
   const personId = randomUUID();
-  const entryComment = `playwright-entry-${Date.now()}`;
+  const entryComment = `playwright-entry-initial-${Date.now()}`;
+  const updatedComment = `playwright-entry-updated-${Date.now()}`;
   const todayUtc = new Date().toISOString().slice(0, 10);
 
   await login(page);
@@ -77,9 +104,9 @@ test("can add a person and save an entry that appears in the entries list", asyn
     has: page.getByRole("heading", { name: "Quick add (home person)" }),
   });
 
-  await quickAdd.locator("input[type='date']").fill(todayUtc);
-  await quickAdd.locator("form select").nth(0).selectOption("13:00");
-  await quickAdd.locator("form select").nth(1).selectOption("4");
+  await quickAdd.getByLabel("Entry date (UTC)").fill(todayUtc);
+  await quickAdd.getByLabel("Entry hour (UTC)").selectOption("13:00");
+  await quickAdd.getByLabel("Bristol score").selectOption("4");
   await quickAdd.locator("textarea").fill(entryComment);
   await quickAdd.getByRole("button", { name: "Save entry" }).click();
 
@@ -89,4 +116,13 @@ test("can add a person and save an entry that appears in the entries list", asyn
     has: page.getByRole("heading", { name: /Entries for/ }),
   });
   await expect(entriesSection).toContainText(entryComment);
+
+  await entriesSection.getByRole("button", { name: "Edit" }).first().click();
+  await entriesSection.getByLabel("Edit entry hour (UTC)").selectOption("14:00");
+  await entriesSection.getByLabel("Edit Bristol score").selectOption("5");
+  await entriesSection.getByLabel("Edit comment").fill(updatedComment);
+  await entriesSection.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(page.getByText("Entry updated.")).toBeVisible();
+  await expect(entriesSection).toContainText(updatedComment);
 });

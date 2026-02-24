@@ -36,11 +36,24 @@ const makeDate = () => {
   return new Date().toISOString().slice(0, 10);
 };
 
+const isoToDateInput = (iso: string) => iso.slice(0, 10);
+const isoToHourInput = (iso: string) => `${iso.slice(11, 13)}:00`;
+
 const isUuid = (value: string) => /^[0-9a-fA-F-]{36}$/.test(value);
 const HOUR_OPTIONS = Array.from(
   { length: 24 },
   (_unused, hour) => `${String(hour).padStart(2, "0")}:00`,
 );
+const BRISTOL_SCORE_HELP = [
+  "Bristol Stool Chart",
+  "1: Separate hard lumps (constipation)",
+  "2: Lumpy and sausage-like",
+  "3: Sausage with cracks on surface",
+  "4: Smooth, soft sausage or snake (typical/ideal)",
+  "5: Soft blobs with clear edges",
+  "6: Fluffy pieces, mushy stool",
+  "7: Watery, no solid pieces (diarrhea)",
+].join("\n");
 
 type BackendStatus = "checking" | "ok" | "error";
 type QueryStatus = "idle" | "loading" | "ok" | "empty" | "error";
@@ -71,6 +84,21 @@ const getStatusLabel = (status: BackendStatus | QueryStatus) => {
   return "Checking";
 };
 
+const getStatusTooltip = (
+  label: string,
+  status: BackendStatus | QueryStatus,
+  detail?: string,
+  extra?: string,
+) => {
+  const base = `${label} status light. Green = connected/healthy, gray = checking or idle, red = error. Current: ${getStatusLabel(
+    status,
+  )}.`;
+
+  const detailPart = detail ? ` Detail: ${detail}.` : "";
+  const extraPart = extra ? ` ${extra}` : "";
+  return `${base}${detailPart}${extraPart}`;
+};
+
 export const Dashboard = ({ session }: DashboardProps) => {
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedPersonId, setSelectedPersonId] = useState("");
@@ -90,6 +118,12 @@ export const Dashboard = ({ session }: DashboardProps) => {
   const [refreshPulseTick, setRefreshPulseTick] = useState(0);
   const [isRefreshPulsing, setIsRefreshPulsing] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editEntryDate, setEditEntryDate] = useState("");
+  const [editEntryTime, setEditEntryTime] = useState("00:00");
+  const [editEntryScore, setEditEntryScore] = useState("4");
+  const [editEntryComment, setEditEntryComment] = useState("");
+  const [isSavingEntryEdit, setIsSavingEntryEdit] = useState(false);
 
   const [entryDate, setEntryDate] = useState(makeDate);
   const [entryTime, setEntryTime] = useState(makeTime);
@@ -309,13 +343,16 @@ export const Dashboard = ({ session }: DashboardProps) => {
   ]);
   const shouldRenderChart = people.length > 0 && selectedPersonId !== "";
   const refreshIndicatorTitle = lastRefreshAt
-    ? `Auto refresh last ran at ${lastRefreshAt.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      })}`
-    : "Auto refresh pending first cycle";
+    ? `Auto refresh heartbeat light. Green pulse = refresh cycle completed. It runs every 15 seconds. Last cycle at ${lastRefreshAt.toLocaleTimeString(
+        "en-US",
+        {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        },
+      )}.`
+    : "Auto refresh heartbeat light. Green pulse = refresh cycle completed. First cycle is pending.";
 
   const onSubmitEntry = async (event: FormEvent) => {
     event.preventDefault();
@@ -358,6 +395,12 @@ export const Dashboard = ({ session }: DashboardProps) => {
     setEntryScore("4");
     setEntryDate(makeDate());
     setEntryTime(makeTime());
+
+    if (selectedPersonId !== homePerson.id) {
+      setSelectedPersonId(homePerson.id);
+      return;
+    }
+
     await loadEntries();
   };
 
@@ -410,6 +453,60 @@ export const Dashboard = ({ session }: DashboardProps) => {
     void loadPeople();
   };
 
+  const startEditingEntry = (entry: ConsistencyEntry) => {
+    setActionError("");
+    setMessage("");
+    setEditingEntryId(entry.id);
+    setEditEntryDate(isoToDateInput(entry.at));
+    setEditEntryTime(isoToHourInput(entry.at));
+    setEditEntryScore(String(entry.score));
+    setEditEntryComment(entry.comment ?? "");
+  };
+
+  const cancelEditingEntry = () => {
+    setEditingEntryId(null);
+    setEditEntryDate("");
+    setEditEntryTime("00:00");
+    setEditEntryScore("4");
+    setEditEntryComment("");
+    setIsSavingEntryEdit(false);
+  };
+
+  const saveEditedEntry = async (event: FormEvent, entryId: string) => {
+    event.preventDefault();
+    setActionError("");
+    setMessage("");
+
+    if (!isCommentLengthValid(editEntryComment)) {
+      setActionError(`Comments must be ${DEFAULT_COMMENT_MAX_LENGTH} characters or fewer.`);
+      return;
+    }
+
+    setIsSavingEntryEdit(true);
+    const { error } = await supabase
+      .from("consistency_entries")
+      .update({
+        at: toUtcHour(editEntryDate, editEntryTime),
+        score: Number(editEntryScore),
+        comment: editEntryComment.trim() || null,
+      })
+      .eq("id", entryId);
+    setIsSavingEntryEdit(false);
+
+    if (error) {
+      if (error.code === "23505") {
+        setActionError("Another entry already exists for that person and hour.");
+      } else {
+        setActionError(error.message);
+      }
+      return;
+    }
+
+    setMessage("Entry updated.");
+    cancelEditingEntry();
+    await loadEntries();
+  };
+
   const moveWindowBack = () => {
     setWindowOffsetDays((current) => current + lookbackDays);
   };
@@ -434,29 +531,35 @@ export const Dashboard = ({ session }: DashboardProps) => {
             aria-label="auth status connected"
             className="status-icon ok"
             data-testid="status-auth"
-            title={`Auth connected: ${session.user.email}`}
+            title={getStatusTooltip("Auth", "ok", undefined, `Signed in as ${session.user.email}.`)}
           />
           <span
             aria-label={`database status ${getStatusLabel(databaseStatus).toLowerCase()}`}
             className={`status-icon ${getStatusClass(databaseStatus)}`}
             data-testid="status-database"
-            title={
-              databaseStatusDetail
-                ? `Database: ${getStatusLabel(databaseStatus)} (${databaseStatusDetail})`
-                : `Database: ${getStatusLabel(databaseStatus)}`
-            }
+            title={getStatusTooltip("Database", databaseStatus, databaseStatusDetail)}
           />
           <span
             aria-label={`people query status ${getStatusLabel(peopleQueryStatus).toLowerCase()}`}
             className={`status-icon ${getStatusClass(peopleQueryStatus)}`}
             data-testid="status-people-query"
-            title={`People query: ${getStatusLabel(peopleQueryStatus)} (${people.length})`}
+            title={getStatusTooltip(
+              "People query",
+              peopleQueryStatus,
+              undefined,
+              `People loaded: ${people.length}.`,
+            )}
           />
           <span
             aria-label={`entries query status ${getStatusLabel(entriesQueryStatus).toLowerCase()}`}
             className={`status-icon ${getStatusClass(entriesQueryStatus)}`}
             data-testid="status-entries-query"
-            title={`Entries query: ${getStatusLabel(entriesQueryStatus)} (${entries.length})`}
+            title={getStatusTooltip(
+              "Entries query",
+              entriesQueryStatus,
+              undefined,
+              `Entries loaded: ${entries.length}.`,
+            )}
           />
           <span
             aria-label="auto refresh indicator"
@@ -509,12 +612,17 @@ export const Dashboard = ({ session }: DashboardProps) => {
             <p className="muted">Default person: {homePersonLabel}</p>
             <form onSubmit={onSubmitEntry} className="inline-form">
               <input
+                aria-label="Entry date (UTC)"
                 type="date"
                 value={entryDate}
                 onChange={(event) => setEntryDate(event.target.value)}
               />
 
-              <select value={entryTime} onChange={(event) => setEntryTime(event.target.value)}>
+              <select
+                aria-label="Entry hour (UTC)"
+                value={entryTime}
+                onChange={(event) => setEntryTime(event.target.value)}
+              >
                 {HOUR_OPTIONS.map((hourValue) => (
                   <option key={hourValue} value={hourValue}>
                     {hourValue}
@@ -522,13 +630,27 @@ export const Dashboard = ({ session }: DashboardProps) => {
                 ))}
               </select>
 
-              <select value={entryScore} onChange={(event) => setEntryScore(event.target.value)}>
-                {BRISTOL_SCALE.map((score) => (
-                  <option key={score} value={score}>
-                    Bristol {score}
-                  </option>
-                ))}
-              </select>
+              <div className="score-input-wrap">
+                <select
+                  aria-label="Bristol score"
+                  value={entryScore}
+                  onChange={(event) => setEntryScore(event.target.value)}
+                >
+                  {BRISTOL_SCALE.map((score) => (
+                    <option key={score} value={score}>
+                      Bristol {score}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  aria-label="Show stool chart help"
+                  className="help-badge"
+                  title={BRISTOL_SCORE_HELP}
+                  type="button"
+                >
+                  ?
+                </button>
+              </div>
 
               <textarea
                 value={entryComment}
@@ -647,9 +769,76 @@ export const Dashboard = ({ session }: DashboardProps) => {
               .reverse()
               .map((entry) => (
                 <li key={entry.id}>
-                  <span>{formatUtcDateTime(entry.at)}</span>
-                  <span>Score {entry.score}</span>
-                  <span>{entry.comment || "-"}</span>
+                  {editingEntryId === entry.id ? (
+                    <form
+                      className="entry-edit-form"
+                      onSubmit={(event) => void saveEditedEntry(event, entry.id)}
+                    >
+                      <div className="entry-row-top">
+                        <input
+                          aria-label="Edit entry date (UTC)"
+                          required
+                          type="date"
+                          value={editEntryDate}
+                          onChange={(event) => setEditEntryDate(event.target.value)}
+                        />
+                        <select
+                          aria-label="Edit entry hour (UTC)"
+                          value={editEntryTime}
+                          onChange={(event) => setEditEntryTime(event.target.value)}
+                        >
+                          {HOUR_OPTIONS.map((hourValue) => (
+                            <option key={hourValue} value={hourValue}>
+                              {hourValue}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label="Edit Bristol score"
+                          value={editEntryScore}
+                          onChange={(event) => setEditEntryScore(event.target.value)}
+                        >
+                          {BRISTOL_SCALE.map((score) => (
+                            <option key={score} value={score}>
+                              Bristol {score}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <textarea
+                        aria-label="Edit comment"
+                        rows={2}
+                        value={editEntryComment}
+                        onChange={(event) => setEditEntryComment(event.target.value)}
+                        placeholder={`Optional comment (up to ${DEFAULT_COMMENT_MAX_LENGTH} chars)`}
+                      />
+                      <div className="entry-actions">
+                        <button disabled={isSavingEntryEdit} type="submit">
+                          {isSavingEntryEdit ? "Saving..." : "Save changes"}
+                        </button>
+                        <button className="ghost" onClick={cancelEditingEntry} type="button">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="entry-row-top">
+                        <span>{formatUtcDateTime(entry.at)}</span>
+                        <span>Score {entry.score}</span>
+                      </div>
+                      <span>{entry.comment || "-"}</span>
+                      <div className="entry-actions">
+                        <button
+                          className="ghost"
+                          onClick={() => startEditingEntry(entry)}
+                          type="button"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </li>
               ))}
           </ul>
