@@ -13,7 +13,6 @@ import {
 import { supabase } from "../lib/supabase";
 import type { ConsistencyEntry, Person, WindowRange } from "../types";
 import {
-  BRISTOL_SCALE,
   buildDailySeries,
   DEFAULT_COMMENT_MAX_LENGTH,
   formatUtcDateTime,
@@ -44,16 +43,15 @@ const HOUR_OPTIONS = Array.from(
   { length: 24 },
   (_unused, hour) => `${String(hour).padStart(2, "0")}:00`,
 );
-const BRISTOL_SCORE_HELP = [
-  "Bristol Stool Chart",
-  "1: Separate hard lumps (constipation)",
-  "2: Lumpy and sausage-like",
-  "3: Sausage with cracks on surface",
-  "4: Smooth, soft sausage or snake (typical/ideal)",
-  "5: Soft blobs with clear edges",
-  "6: Fluffy pieces, mushy stool",
-  "7: Watery, no solid pieces (diarrhea)",
-].join("\n");
+const BRISTOL_LEVELS = [
+  { score: 1, mnemonic: "Hard", description: "Separate hard lumps (constipation)." },
+  { score: 2, mnemonic: "Lumpy", description: "Lumpy and sausage-like." },
+  { score: 3, mnemonic: "Cracked", description: "Sausage with cracks on surface." },
+  { score: 4, mnemonic: "Smooth", description: "Smooth, soft sausage or snake (typical/ideal)." },
+  { score: 5, mnemonic: "Soft", description: "Soft blobs with clear edges." },
+  { score: 6, mnemonic: "Mushy", description: "Fluffy pieces, mushy stool." },
+  { score: 7, mnemonic: "Liquid", description: "Watery, no solid pieces (diarrhea)." },
+] as const;
 
 type BackendStatus = "checking" | "ok" | "error";
 type QueryStatus = "idle" | "loading" | "ok" | "empty" | "error";
@@ -124,6 +122,8 @@ export const Dashboard = ({ session }: DashboardProps) => {
   const [editEntryScore, setEditEntryScore] = useState("4");
   const [editEntryComment, setEditEntryComment] = useState("");
   const [isSavingEntryEdit, setIsSavingEntryEdit] = useState(false);
+  const [isBristolHelpOpen, setIsBristolHelpOpen] = useState(false);
+  const [isStatusHelpOpen, setIsStatusHelpOpen] = useState(false);
 
   const [entryDate, setEntryDate] = useState(makeDate);
   const [entryTime, setEntryTime] = useState(makeTime);
@@ -153,21 +153,27 @@ export const Dashboard = ({ session }: DashboardProps) => {
     setDatabaseStatus("ok");
   }, []);
 
-  const loadPeople = useCallback(async () => {
-    setLoadingPeople(true);
-    setPeopleQueryStatus("loading");
-    setActionError("");
+  const loadPeople = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoadingPeople(true);
+      setPeopleQueryStatus("loading");
+      setActionError("");
+    }
     const { data, error } = await supabase
       .from("people")
       .select("*")
       .order("created_at", { ascending: true });
 
     if (error) {
-      setActionError(error.message);
+      if (!silent) {
+        setActionError(error.message);
+      }
       setPeopleQueryStatus("error");
       setDatabaseStatus("error");
       setDatabaseStatusDetail(error.message);
-      setLoadingPeople(false);
+      if (!silent) {
+        setLoadingPeople(false);
+      }
       return;
     }
 
@@ -200,59 +206,77 @@ export const Dashboard = ({ session }: DashboardProps) => {
       setEntriesQueryStatus("idle");
     }
 
-    setLoadingPeople(false);
+    if (!silent) {
+      setLoadingPeople(false);
+    }
   }, []);
 
-  const loadEntries = useCallback(async () => {
-    if (!selectedPersonId) {
-      setEntries([]);
-      setEntriesQueryStatus("idle");
-      setLoadingEntries(false);
-      return;
-    }
+  const loadEntries = useCallback(
+    async (silent = false) => {
+      if (!selectedPersonId) {
+        setEntries([]);
+        setEntriesQueryStatus("idle");
+        if (!silent) {
+          setLoadingEntries(false);
+        }
+        return;
+      }
 
-    setLoadingEntries(true);
-    setEntriesQueryStatus("loading");
-    setActionError("");
+      if (!silent) {
+        setLoadingEntries(true);
+        setEntriesQueryStatus("loading");
+        setActionError("");
+      }
 
-    const currentRange = getUtcWindowRange(lookbackDays, windowOffsetDays);
-    setRange(currentRange);
+      const currentRange = getUtcWindowRange(lookbackDays, windowOffsetDays);
+      setRange(currentRange);
 
-    const { data, error } = await supabase
-      .from("consistency_entries")
-      .select("*")
-      .eq("person_id", selectedPersonId)
-      .gte("at", currentRange.start)
-      .lt("at", currentRange.endExclusive)
-      .order("at", { ascending: true });
+      const { data, error } = await supabase
+        .from("consistency_entries")
+        .select("*")
+        .eq("person_id", selectedPersonId)
+        .gte("at", currentRange.start)
+        .lt("at", currentRange.endExclusive)
+        .order("at", { ascending: true });
 
-    if (error) {
-      setActionError(error.message);
-      setEntriesQueryStatus("error");
-      setDatabaseStatus("error");
-      setDatabaseStatusDetail(error.message);
-    } else {
-      const nextEntries = (data as ConsistencyEntry[]) ?? [];
-      setEntries(nextEntries);
-      setEntriesQueryStatus(nextEntries.length > 0 ? "ok" : "empty");
-      setDatabaseStatus("ok");
-      setDatabaseStatusDetail("");
-    }
+      if (error) {
+        if (!silent) {
+          setActionError(error.message);
+        }
+        setEntriesQueryStatus("error");
+        setDatabaseStatus("error");
+        setDatabaseStatusDetail(error.message);
+      } else {
+        const nextEntries = (data as ConsistencyEntry[]) ?? [];
+        setEntries(nextEntries);
+        setEntriesQueryStatus(nextEntries.length > 0 ? "ok" : "empty");
+        setDatabaseStatus("ok");
+        setDatabaseStatusDetail("");
+      }
 
-    setLoadingEntries(false);
-  }, [lookbackDays, selectedPersonId, windowOffsetDays]);
+      if (!silent) {
+        setLoadingEntries(false);
+      }
+    },
+    [lookbackDays, selectedPersonId, windowOffsetDays],
+  );
 
-  const runAutomaticRefresh = useCallback(async () => {
+  const runSilentRefresh = useCallback(async () => {
     await checkDatabaseConnection();
-    await loadPeople();
-    await loadEntries();
+    await loadPeople(true);
+    await loadEntries(true);
     setLastRefreshAt(new Date());
     setRefreshPulseTick((current) => current + 1);
   }, [checkDatabaseConnection, loadEntries, loadPeople]);
 
   useEffect(() => {
-    void runAutomaticRefresh();
-  }, [runAutomaticRefresh]);
+    const loadInitialData = async () => {
+      await checkDatabaseConnection(true);
+      await loadPeople();
+    };
+
+    void loadInitialData();
+  }, [checkDatabaseConnection, loadPeople]);
 
   useEffect(() => {
     void loadEntries();
@@ -260,13 +284,13 @@ export const Dashboard = ({ session }: DashboardProps) => {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      void runAutomaticRefresh();
+      void runSilentRefresh();
     }, 15000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [runAutomaticRefresh]);
+  }, [runSilentRefresh]);
 
   useEffect(() => {
     if (refreshPulseTick === 0) {
@@ -529,50 +553,86 @@ export const Dashboard = ({ session }: DashboardProps) => {
     return undefined;
   }, [message]);
 
+  useEffect(() => {
+    if (!isBristolHelpOpen && !isStatusHelpOpen) {
+      return undefined;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsBristolHelpOpen(false);
+        setIsStatusHelpOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isBristolHelpOpen, isStatusHelpOpen]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-right">
-          <span
+          <button
+            type="button"
             aria-label="auth status connected"
-            className="status-icon ok"
+            className="status-dot-button"
             data-testid="status-auth"
+            onClick={() => setIsStatusHelpOpen(true)}
             title={getStatusTooltip("Auth", "ok", undefined, `Signed in as ${session.user.email}.`)}
-          />
-          <span
+          >
+            <span className="status-icon ok" />
+          </button>
+          <button
+            type="button"
             aria-label={`database status ${getStatusLabel(databaseStatus).toLowerCase()}`}
-            className={`status-icon ${getStatusClass(databaseStatus)}`}
+            className="status-dot-button"
             data-testid="status-database"
+            onClick={() => setIsStatusHelpOpen(true)}
             title={getStatusTooltip("Database", databaseStatus, databaseStatusDetail)}
-          />
-          <span
+          >
+            <span className={`status-icon ${getStatusClass(databaseStatus)}`} />
+          </button>
+          <button
+            type="button"
             aria-label={`people query status ${getStatusLabel(peopleQueryStatus).toLowerCase()}`}
-            className={`status-icon ${getStatusClass(peopleQueryStatus)}`}
+            className="status-dot-button"
             data-testid="status-people-query"
+            onClick={() => setIsStatusHelpOpen(true)}
             title={getStatusTooltip(
               "People query",
               peopleQueryStatus,
               undefined,
               `People loaded: ${people.length}.`,
             )}
-          />
-          <span
+          >
+            <span className={`status-icon ${getStatusClass(peopleQueryStatus)}`} />
+          </button>
+          <button
+            type="button"
             aria-label={`entries query status ${getStatusLabel(entriesQueryStatus).toLowerCase()}`}
-            className={`status-icon ${getStatusClass(entriesQueryStatus)}`}
+            className="status-dot-button"
             data-testid="status-entries-query"
+            onClick={() => setIsStatusHelpOpen(true)}
             title={getStatusTooltip(
               "Entries query",
               entriesQueryStatus,
               undefined,
               `Entries loaded: ${entries.length}.`,
             )}
-          />
-          <span
+          >
+            <span className={`status-icon ${getStatusClass(entriesQueryStatus)}`} />
+          </button>
+          <button
+            type="button"
             aria-label="auto refresh indicator"
-            className={`status-icon refresh ${isRefreshPulsing ? "pulse" : ""}`}
+            className="status-dot-button"
             data-testid="status-refresh"
+            onClick={() => setIsStatusHelpOpen(true)}
             title={refreshIndicatorTitle}
-          />
+          >
+            <span className={`status-icon refresh ${isRefreshPulsing ? "pulse" : ""}`} />
+          </button>
 
           <div className="settings-anchor">
             <button
@@ -642,16 +702,16 @@ export const Dashboard = ({ session }: DashboardProps) => {
                   value={entryScore}
                   onChange={(event) => setEntryScore(event.target.value)}
                 >
-                  {BRISTOL_SCALE.map((score) => (
-                    <option key={score} value={score}>
-                      Bristol {score}
+                  {BRISTOL_LEVELS.map((level) => (
+                    <option key={level.score} value={level.score}>
+                      Bristol {level.score} - {level.mnemonic}
                     </option>
                   ))}
                 </select>
                 <button
                   aria-label="Show stool chart help"
                   className="help-badge"
-                  title={BRISTOL_SCORE_HELP}
+                  onClick={() => setIsBristolHelpOpen(true)}
                   type="button"
                 >
                   ?
@@ -804,9 +864,9 @@ export const Dashboard = ({ session }: DashboardProps) => {
                           value={editEntryScore}
                           onChange={(event) => setEditEntryScore(event.target.value)}
                         >
-                          {BRISTOL_SCALE.map((score) => (
-                            <option key={score} value={score}>
-                              Bristol {score}
+                          {BRISTOL_LEVELS.map((level) => (
+                            <option key={level.score} value={level.score}>
+                              Bristol {level.score} - {level.mnemonic}
                             </option>
                           ))}
                         </select>
@@ -875,6 +935,85 @@ export const Dashboard = ({ session }: DashboardProps) => {
         Signed in as {session.user.email} · Metadata columns (created_by/updated_at) are captured on
         save.
       </p>
+
+      {isBristolHelpOpen ? (
+        <div className="modal-backdrop" onClick={() => setIsBristolHelpOpen(false)}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bristol-help-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="bristol-help-title">Bristol stool chart guide</h3>
+            <ul className="modal-list">
+              {BRISTOL_LEVELS.map((level) => (
+                <li key={level.score}>
+                  <strong>
+                    {level.score} - {level.mnemonic}
+                  </strong>{" "}
+                  {level.description}
+                </li>
+              ))}
+            </ul>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setIsBristolHelpOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isStatusHelpOpen ? (
+        <div className="modal-backdrop" onClick={() => setIsStatusHelpOpen(false)}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="status-help-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="status-help-title">Status indicators</h3>
+            <ul className="modal-list">
+              <li>
+                <strong>Auth</strong>: session status for the signed-in user ({session.user.email}).
+              </li>
+              <li>
+                <strong>Database</strong>: connection health to Supabase. Current:{" "}
+                {getStatusLabel(databaseStatus)}.
+              </li>
+              <li>
+                <strong>People query</strong>: latest people-table fetch status. Current:{" "}
+                {getStatusLabel(peopleQueryStatus)}.
+              </li>
+              <li>
+                <strong>Entries query</strong>: latest entries fetch status for selected
+                person/window. Current: {getStatusLabel(entriesQueryStatus)}.
+              </li>
+              <li>
+                <strong>Refresh</strong>: heartbeat of automatic 15-second refresh cycles.{" "}
+                {lastRefreshAt
+                  ? `Last completed at ${lastRefreshAt.toLocaleTimeString("en-US", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                      hour12: false,
+                    })}.`
+                  : "First cycle is pending."}
+              </li>
+            </ul>
+            <p className="muted">
+              Color legend: green = healthy, gray = checking/idle, red = error.
+            </p>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setIsStatusHelpOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 };
