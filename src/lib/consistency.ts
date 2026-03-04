@@ -2,6 +2,8 @@ import type { ConsistencyEntry, DailySeriesPoint, WindowRange } from "../types";
 
 export const BRISTOL_SCALE = [1, 2, 3, 4, 5, 6, 7] as const;
 export const DEFAULT_COMMENT_MAX_LENGTH = 1000;
+const LONG_GAP_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+const UTC_DAY_MS = 24 * 60 * 60 * 1000;
 
 function toUtcStartOfDay(date: Date): Date {
   return new Date(
@@ -88,18 +90,22 @@ export function buildDailySeries(
 ): DailySeriesPoint[] {
   const buckets: DailySeriesPoint[] = [];
   const values = new Map<string, { count: number; sum: number }>();
+  const bucketStartTimesMs: number[] = [];
 
   for (let dayOffset = 0; dayOffset < range.dayCount; dayOffset += 1) {
-    const bucketDate = addUtcDays(range.startDate, dayOffset).toISOString().slice(0, 10);
+    const bucketStartDate = addUtcDays(range.startDate, dayOffset);
+    const bucketDate = bucketStartDate.toISOString().slice(0, 10);
     const point: DailySeriesPoint = {
       date: bucketDate,
       label: dayLabelFromKey(bucketDate),
       count: 0,
       average: null,
       rollingAverage: null,
+      hasLongGapWithoutEntry: false,
     };
     buckets.push(point);
     values.set(bucketDate, { count: 0, sum: 0 });
+    bucketStartTimesMs.push(bucketStartDate.getTime());
   }
 
   for (const entry of entries) {
@@ -140,6 +146,40 @@ export function buildDailySeries(
       buckets[idx].rollingAverage = Number((total / sampleCount).toFixed(2));
     }
   }
+
+  const sortedEntryTimesMs = entries
+    .map((entry) => Date.parse(entry.at))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+
+  const markLongGapWindow = (segmentStartMs: number, segmentEndMs: number) => {
+    if (segmentEndMs - segmentStartMs <= LONG_GAP_THRESHOLD_MS) {
+      return;
+    }
+
+    const alertStartMs = segmentStartMs + LONG_GAP_THRESHOLD_MS;
+    for (let idx = 0; idx < buckets.length; idx += 1) {
+      const bucketStartMs = bucketStartTimesMs[idx];
+      const bucketEndMs = bucketStartMs + UTC_DAY_MS;
+
+      if (bucketEndMs <= alertStartMs || bucketStartMs >= segmentEndMs) {
+        continue;
+      }
+
+      buckets[idx].hasLongGapWithoutEntry = true;
+    }
+  };
+
+  const windowStartMs = range.startDate.getTime();
+  const windowEndMs = range.endDateExclusive.getTime();
+  let previousMs = windowStartMs;
+
+  for (const entryTimeMs of sortedEntryTimesMs) {
+    markLongGapWindow(previousMs, entryTimeMs);
+    previousMs = entryTimeMs;
+  }
+
+  markLongGapWindow(previousMs, windowEndMs);
 
   return buckets;
 }

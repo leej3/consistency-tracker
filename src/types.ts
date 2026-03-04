@@ -22,6 +22,7 @@ export type DailySeriesPoint = {
   count: number;
   average: number | null;
   rollingAverage: number | null;
+  hasLongGapWithoutEntry: boolean;
 };
 
 export type WindowRange = {

@@ -51,6 +51,28 @@ it("rolls up daily averages and rolling score", () => {
   expect(series).toHaveLength(5);
   expect(series[0].count).toBe(2);
   expect(series[0].average).toBe(4);
+  expect(series[0].hasLongGapWithoutEntry).toBe(false);
+});
+
+it("marks days that are part of >48h no-entry gaps", () => {
+  const entries = [
+    {
+      id: "g1",
+      person_id: "p",
+      created_by: "u",
+      at: `${sampleRange.start.slice(0, 10)}T00:00:00.000Z`,
+      score: 4,
+      comment: null,
+      created_at: sampleRange.start,
+      updated_at: sampleRange.start,
+    },
+  ];
+
+  const series = buildDailySeries(entries, sampleRange, 3);
+  expect(series[0].hasLongGapWithoutEntry).toBe(false);
+  expect(series[1].hasLongGapWithoutEntry).toBe(false);
+  expect(series[2].hasLongGapWithoutEntry).toBe(true);
+  expect(series[3].hasLongGapWithoutEntry).toBe(true);
 });
 
 it("validates comment length", () => {

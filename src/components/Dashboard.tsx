@@ -26,6 +26,30 @@ type DashboardProps = {
   session: Session;
 };
 
+const renderGapAlertDot = (props: {
+  cx?: number;
+  cy?: number;
+  payload?: {
+    gapAlertMarker?: number | null;
+  };
+}) => {
+  const { cx, cy, payload } = props;
+  if (
+    typeof cx !== "number" ||
+    typeof cy !== "number" ||
+    !payload ||
+    payload.gapAlertMarker === null
+  ) {
+    return <g />;
+  }
+
+  return (
+    <text x={cx} y={cy - 2} textAnchor="middle" fill="#bb3131" fontSize={15} aria-hidden="true">
+      ★
+    </text>
+  );
+};
+
 const makeTime = () => {
   const hour = new Date().getUTCHours();
   return `${String(hour).padStart(2, "0")}:00`;
@@ -133,9 +157,9 @@ export const Dashboard = ({ session }: DashboardProps) => {
   const [newPersonId, setNewPersonId] = useState("");
   const [setAsDefault, setSetAsDefault] = useState(false);
 
-  const [lookbackDays, setLookbackDays] = useState<5 | 14 | 30>(5);
+  const [lookbackDays, setLookbackDays] = useState<5 | 14 | 30>(30);
   const [windowOffsetDays, setWindowOffsetDays] = useState(0);
-  const [range, setRange] = useState<WindowRange>(() => getUtcWindowRange(5, 0));
+  const [range, setRange] = useState<WindowRange>(() => getUtcWindowRange(30, 0));
 
   const checkDatabaseConnection = useCallback(async (showChecking = false) => {
     if (showChecking) {
@@ -322,6 +346,22 @@ export const Dashboard = ({ session }: DashboardProps) => {
   }, [people, selectedPersonId]);
 
   const series = useMemo(() => buildDailySeries(entries, range), [entries, range]);
+  const maxDailyCount = useMemo(
+    () => series.reduce((currentMax, point) => Math.max(currentMax, point.count), 0),
+    [series],
+  );
+  const chartSeries = useMemo(
+    () =>
+      series.map((point) => ({
+        ...point,
+        gapAlertMarker: point.hasLongGapWithoutEntry ? maxDailyCount + 1 : null,
+      })),
+    [maxDailyCount, series],
+  );
+  const hasLongGapAlert = useMemo(
+    () => series.some((point) => point.hasLongGapWithoutEntry),
+    [series],
+  );
 
   const selectedPerson = useMemo(
     () => people.find((person) => person.id === selectedPersonId) ?? null,
@@ -790,13 +830,24 @@ export const Dashboard = ({ session }: DashboardProps) => {
         <div className="chart-wrap">
           {shouldRenderChart ? (
             <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={series}>
+              <ComposedChart data={chartSeries}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" />
                 <YAxis yAxisId="left" allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" domain={[1, 7]} />
                 <Tooltip />
                 <Bar yAxisId="left" dataKey="count" fill="#2f8f4e" name="Daily entries" />
+                <Line
+                  yAxisId="left"
+                  type="linear"
+                  dataKey="gapAlertMarker"
+                  stroke="transparent"
+                  connectNulls={false}
+                  dot={renderGapAlertDot}
+                  activeDot={false}
+                  isAnimationActive={false}
+                  name=">48h no-entry gap alert"
+                />
                 <Line
                   yAxisId="right"
                   type="monotone"
@@ -812,6 +863,11 @@ export const Dashboard = ({ session }: DashboardProps) => {
             <div className="chart-placeholder">Chart will appear after selecting a person.</div>
           )}
         </div>
+        {hasLongGapAlert ? (
+          <p className="gap-alert-note">
+            ★ Red star marks a period with more than 48 hours without an entry.
+          </p>
+        ) : null}
       </section>
 
       <section className="card">

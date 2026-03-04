@@ -253,6 +253,11 @@ h2 {
   min-height: 280px;
 }
 
+.gap-alert-note {
+  margin: 0.6rem 0 0;
+  color: #8a2c2c;
+}
+
 .chart-placeholder {
   display: flex;
   justify-content: center;
