@@ -115,7 +115,7 @@ npm run test:e2e
 For hosted environments, set:
 
 - `Project URL` → `VITE_SUPABASE_URL`
-- `anon public API key` → `VITE_SUPABASE_ANON_KEY`
+- `publishable API key` → `VITE_SUPABASE_PUBLISHABLE_KEY`
 
 Find both in:
 
@@ -176,7 +176,7 @@ Required repo secret:
 
 - `CF_API_KEY` (Cloudflare API token for Pages)
 - `VITE_SUPABASE_URL` (hosted Supabase project URL)
-- `VITE_SUPABASE_ANON_KEY` (hosted Supabase anon key)
+- `VITE_SUPABASE_PUBLISHABLE_KEY` (hosted Supabase publishable key)
 
 Set your project name in workflow env `PROJECT_NAME`.
 
