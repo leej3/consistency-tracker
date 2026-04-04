@@ -177,10 +177,13 @@ Required repo secret:
 - `CF_API_KEY` (Cloudflare API token for Pages)
 - `VITE_SUPABASE_URL` (hosted Supabase project URL)
 - `VITE_SUPABASE_PUBLISHABLE_KEY` (hosted Supabase publishable key)
+- `SUPABASE_ACCESS_TOKEN` (Supabase management PAT used to unpause the project)
 
 Set your project name in workflow env `PROJECT_NAME`.
 
 Deploy to main branch only; preview deployment on PRs is disabled by design.
+
+The repository also includes a reusable `Restore Supabase project` workflow. It runs automatically before each production deploy and can also be triggered manually from the Actions tab. The restore step is status-aware, so rerunning it against an already active project is a no-op.
 
 ## Notes on password reset
 
